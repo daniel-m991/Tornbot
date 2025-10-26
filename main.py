@@ -7,9 +7,13 @@ from datetime import datetime, timedelta
 import aiohttp
 import asyncio
 import re
+from database import Database
 
 # Load environment variables
 load_dotenv()
+
+# Initialize database
+db = Database()
 
 # Bot configuration
 intents = discord.Intents.default()
@@ -54,6 +58,274 @@ async def on_ready():
         print(f"Synced {len(synced)} command(s)")
     except Exception as e:
         print(f"Failed to sync commands: {e}")
+
+@bot.tree.command(name="viewcoverage", description="View coverage records from the database")
+@app_commands.describe(
+    status="Filter by status (pending, active, etc)",
+    user="Filter by specific user",
+    limit="Number of records to show (max 20)"
+)
+async def view_coverage(
+    interaction: discord.Interaction,
+    status: str = None,
+    user: discord.Member = None,
+    limit: int = 10
+):
+    """View coverage records from the database"""
+    
+    # Check permissions
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message("❌ Only administrators can view database records.", ephemeral=True)
+        return
+    
+    # Validate limit
+    limit = min(max(1, limit), 20)  # Ensure limit is between 1 and 20
+    
+    # Get records
+    records = db.get_coverage_records(
+        status=status,
+        user_id=user.id if user else None,
+        limit=limit
+    )
+    
+    if not records:
+        await interaction.response.send_message("No coverage records found matching the criteria.", ephemeral=True)
+        return
+    
+    # Create embed
+    embed = discord.Embed(
+        title="📊 Coverage Records",
+        description=f"Showing up to {limit} records" + 
+                   (f" for {user.mention}" if user else "") +
+                   (f" with status '{status}'" if status else ""),
+        color=discord.Color.blue()
+    )
+    
+    # Add records to embed
+    for record in records:
+        created_at = datetime.fromisoformat(str(record['created_at']))
+        expires_at = datetime.fromisoformat(str(record['expires_at'])) if record['expires_at'] else None
+        
+        value = f"**Type:** {record['coverage_type']}\n"
+        value += f"**Duration:** {record['duration']} {'hours' if record['coverage_type'] == 'XAN' else 'jumps'}\n"
+        value += f"**Cost:** {record['xanax_cost']} Xanax\n"
+        value += f"**Status:** {record['status']}\n"
+        value += f"**Created:** {created_at.strftime('%m/%d %H:%M')}\n"
+        if expires_at:
+            value += f"**Expires:** {expires_at.strftime('%m/%d %H:%M')}"
+        
+        embed.add_field(
+            name=f"Order {record['order_id']}",
+            value=value,
+            inline=False
+        )
+    
+    await interaction.response.send_message(embed=embed)
+
+@bot.tree.command(name="viewtransactions", description="View transaction records from the database")
+@app_commands.describe(
+    type="Filter by type (received or payout)",
+    user="Filter by specific user",
+    limit="Number of records to show (max 20)"
+)
+@app_commands.choices(type=[
+    app_commands.Choice(name="Received", value="received"),
+    app_commands.Choice(name="Payout", value="payout")
+])
+async def view_transactions(
+    interaction: discord.Interaction,
+    type: app_commands.Choice[str] = None,
+    user: discord.Member = None,
+    limit: int = 10
+):
+    """View transaction records from the database"""
+    
+    # Check permissions
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message("❌ Only administrators can view database records.", ephemeral=True)
+        return
+    
+    # Validate limit
+    limit = min(max(1, limit), 20)  # Ensure limit is between 1 and 20
+    
+    # Get records
+    records = db.get_transaction_records(
+        transaction_type=type.value if type else None,
+        user_id=user.id if user else None,
+        limit=limit
+    )
+    
+    if not records:
+        await interaction.response.send_message("No transaction records found matching the criteria.", ephemeral=True)
+        return
+    
+    # Create embed
+    embed = discord.Embed(
+        title="📊 Transaction Records",
+        description=f"Showing up to {limit} records" + 
+                   (f" for {user.mention}" if user else "") +
+                   (f" of type '{type.name}'" if type else ""),
+        color=discord.Color.blue()
+    )
+    
+    # Add records to embed
+    for record in records:
+        transaction_time = datetime.fromisoformat(str(record['transaction_time']))
+        
+        value = f"**Type:** {record['transaction_type'].title()}\n"
+        value += f"**Amount:** {record['amount']} Xanax\n"
+        value += f"**Time:** {transaction_time.strftime('%m/%d %H:%M')}\n"
+        if record['notes']:
+            value += f"**Notes:** {record['notes']}"
+        
+        embed.add_field(
+            name=f"Transaction for {record['username']}",
+            value=value,
+            inline=False
+        )
+    
+    await interaction.response.send_message(embed=embed)
+
+@bot.tree.command(name="costs", description="View detailed cost analysis of the insurance system")
+@app_commands.describe(
+    days="Number of days to analyze (leave empty for all-time stats)"
+)
+async def view_costs(interaction: discord.Interaction, days: int = None):
+    """View detailed cost analysis of the insurance system"""
+    
+    # Check permissions
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message("❌ Only administrators can view cost analysis.", ephemeral=True)
+        return
+    
+    # Get analysis
+    analysis = db.get_cost_analysis(days)
+    
+    if not analysis:
+        await interaction.response.send_message("❌ Failed to retrieve cost analysis.", ephemeral=True)
+        return
+    
+    # Create embed
+    period_text = f"Last {days} days" if days else "All time"
+    embed = discord.Embed(
+        title=f"💰 Insurance System Cost Analysis ({period_text})",
+        color=discord.Color.gold()
+    )
+    
+    # Overall stats
+    received = analysis['received']
+    paid = analysis['paid']
+    profit = analysis['profit']
+    
+    embed.add_field(
+        name="📥 Xanax Received",
+        value=f"**Amount:** {received['total_amount']:,} Xanax\n**Transactions:** {received['total_transactions']:,}",
+        inline=True
+    )
+    
+    embed.add_field(
+        name="📤 Xanax Paid Out",
+        value=f"**Amount:** {paid['total_amount']:,} Xanax\n**Transactions:** {paid['total_transactions']:,}",
+        inline=True
+    )
+    
+    # Profit calculation
+    profit_color = "🟢" if profit > 0 else "🔴" if profit < 0 else "⚪"
+    embed.add_field(
+        name="📊 System Balance",
+        value=f"{profit_color} **{abs(profit):,} Xanax** {'profit' if profit >= 0 else 'loss'}",
+        inline=False
+    )
+    
+    # Top payers
+    if analysis['top_payers']:
+        payers_text = ""
+        for i, payer in enumerate(analysis['top_payers'], 1):
+            payers_text += f"{i}. **{payer['username']}**\n"
+            payers_text += f"   └ {payer['total_amount']:,} Xanax ({payer['transaction_count']} payments)\n"
+        
+        embed.add_field(
+            name="🏆 Top Insurance Buyers",
+            value=payers_text or "No data",
+            inline=False
+        )
+    
+    # Top receivers
+    if analysis['top_receivers']:
+        receivers_text = ""
+        for i, receiver in enumerate(analysis['top_receivers'], 1):
+            receivers_text += f"{i}. **{receiver['username']}**\n"
+            receivers_text += f"   └ {receiver['total_amount']:,} Xanax ({receiver['transaction_count']} claims)\n"
+        
+        embed.add_field(
+            name="💫 Top Insurance Claimants",
+            value=receivers_text or "No data",
+            inline=False
+        )
+    
+    # Add averages if there are transactions
+    if received['total_transactions'] > 0 and paid['total_transactions'] > 0:
+        avg_received = received['total_amount'] / received['total_transactions']
+        avg_paid = paid['total_amount'] / paid['total_transactions']
+        
+        embed.add_field(
+            name="📈 Averages",
+            value=f"**Avg Payment:** {avg_received:.1f} Xanax\n**Avg Payout:** {avg_paid:.1f} Xanax",
+            inline=False
+        )
+    
+    current_time = datetime.now()
+    embed.set_footer(text=f"Generated at {current_time.strftime('%m/%d/%Y %H:%M')}")
+    
+    await interaction.response.send_message(embed=embed)
+
+@bot.tree.command(name="stats", description="View Xanax transaction statistics")
+@app_commands.describe(user="Optional: View stats for a specific user")
+async def view_stats(interaction: discord.Interaction, user: discord.Member = None):
+    """View Xanax transaction statistics"""
+    
+    if user:
+        # Get stats for specific user
+        received, paid = db.get_user_stats(user.id)
+        title = f"📊 Xanax Statistics for {user.display_name}"
+        description = f"Statistics for {user.mention}"
+    else:
+        # Get overall stats
+        received, paid = db.get_stats()
+        title = "📊 Overall Xanax Statistics"
+        description = "Total Xanax transactions for all users"
+    
+    # Calculate balance
+    balance = received - paid
+    
+    embed = discord.Embed(
+        title=title,
+        description=description,
+        color=discord.Color.blue()
+    )
+    
+    embed.add_field(
+        name="💊 Xanax Received",
+        value=f"{received:,} Xanax",
+        inline=True
+    )
+    
+    embed.add_field(
+        name="💰 Xanax Paid Out",
+        value=f"{paid:,} Xanax",
+        inline=True
+    )
+    
+    embed.add_field(
+        name="⚖️ Current Balance",
+        value=f"{balance:,} Xanax",
+        inline=False
+    )
+    
+    current_time = datetime.now()
+    embed.set_footer(text=f"Stats as of {current_time.strftime('%m/%d/%Y %H:%M')}")
+    
+    await interaction.response.send_message(embed=embed)
 
 # Auto order checking task
 @tasks.loop(minutes=1)  # Check every minute, but only process based on interval
@@ -698,7 +970,8 @@ async def xan_insurance(interaction: discord.Interaction, coverage: str):
     
     # Store pending order
     order_id = f"{user.id}_{datetime.now().timestamp()}"
-    pending_order[order_id] = {
+    order_data = {
+        "order_id": order_id,
         "user_id": user.id,
         "username": str(user),
         "display_name": user.display_name if hasattr(user, 'display_name') else user.name,
@@ -710,6 +983,10 @@ async def xan_insurance(interaction: discord.Interaction, coverage: str):
         "status": "pending",
         "user_message": user_message  # Store message for updates
     }
+    pending_order[order_id] = order_data
+    
+    # Record in database
+    db.add_coverage(order_data)
 
 async def extc_coverage_autocomplete(interaction: discord.Interaction, current: str):
     """Autocomplete for EXTC coverage options based on configured pricing"""
@@ -1531,11 +1808,44 @@ async def perform_order_check(guild, torn_api_key):
         
         active_orders[order_id]['expires_at'] = expiry_time.strftime('%Y-%m-%d %H:%M:%S')
         
+        # Update database
+        db.activate_coverage(order_id, activation_time)
+        
         # Remove from pending
         if order_id in pending_order:
             del pending_order[order_id]
         
         activated_count += 1
+        
+        # Send thank you message and review request
+        user_id = order_data.get('user_id')
+        if user_id:
+            user = guild.get_member(user_id)
+            if user:
+                thank_you_embed = discord.Embed(
+                    title="🙏 Thank You for Your Order!",
+                    description="Your insurance coverage has been activated. We appreciate your business!",
+                    color=discord.Color.gold()
+                )
+                thank_you_embed.add_field(
+                    name="📝 Leave a Review",
+                    value="We'd love to hear your feedback! Please consider leaving a review:",
+                    inline=False
+                )
+                thank_you_embed.add_field(
+                    name="🌐 Torn Forums",
+                    value="[Click here to leave a review on Torn Forums](https://www.torn.com/forums.php#/p=threads&f=10&t=16512240&b=0&a=0&start=0&to=26576367)",
+                    inline=False
+                )
+                thank_you_embed.add_field(
+                    name="💬 Discord Reviews",
+                    value="Please share your experience in our <#review> channel!",
+                    inline=False
+                )
+                try:
+                    await user.send(embed=thank_you_embed)
+                except:
+                    pass  # User might have DMs disabled
         
         # Update user's original message to show accepted status
         user_message = order_data.get('user_message')
@@ -2310,10 +2620,24 @@ async def finalize_overdose(interaction: discord.Interaction, user: discord.Memb
     overdose_reports[report_id]['finalized_by'] = str(interaction.user)
     overdose_reports[report_id]['finalized_at'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     
-    # Remove associated active order
+    # Record payout in database
+    coverage_type = report_data.get('coverage_type', 'XAN')
+    if coverage_type == 'XAN':
+        xanax_amount = report_data.get('order_data', {}).get('xanax_reward', 0)
+    else:  # EXTC
+        xanax_amount = report_data.get('order_data', {}).get('xanax_reward', 0)
+    
+    if xanax_amount > 0:
+        db.record_payout(
+            report_data.get('order_id'),
+            user.id,
+            str(user),
+            xanax_amount,
+            f"Overdose payout - {coverage_type}"
+        )
+    
+    # Keep the active order (coverage remains active)
     order_id = report_data.get('order_id')
-    if order_id in active_orders:
-        del active_orders[order_id]
     
     # Create confirmation embed
     embed = discord.Embed(
@@ -2328,7 +2652,7 @@ async def finalize_overdose(interaction: discord.Interaction, user: discord.Memb
     )
     embed.add_field(
         name="📋 Action Required",
-        value=f"Send **{report_data.get('payout_details')}** to {user.mention}\nInsurance coverage has been deactivated.",
+        value=f"Send **{report_data.get('payout_details')}** to {user.mention}\nInsurance coverage remains active.",
         inline=False
     )
     embed.set_footer(text=f"Finalized by: {interaction.user.display_name}")
@@ -2350,6 +2674,89 @@ async def finalize_overdose(interaction: discord.Interaction, user: discord.Memb
         )
         log_embed.set_footer(text=f"Report ID: {report_id}")
         await payout_channel.send(embed=log_embed)
+
+@bot.tree.command(name="givecover", description="Give a user drug-specific coverage (Admin only)")
+@app_commands.describe(
+    user="User to give coverage to",
+    drug_type="Type of drug coverage to give",
+    duration="Duration in hours for Xanax cover, or number of jumps for Ecstasy",
+    reward="Amount of reward for coverage"
+)
+@app_commands.choices(drug_type=[
+    app_commands.Choice(name="Xanax", value="XAN"),
+    app_commands.Choice(name="Ecstasy", value="EXTC")
+])
+async def give_coverage(interaction: discord.Interaction, user: discord.Member, drug_type: app_commands.Choice[str], duration: int, reward: int):
+    """Give a user drug-specific coverage (Admin only)"""
+    
+    # Check if user is admin
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message("❌ Only administrators can give coverage.", ephemeral=True)
+        return
+    
+    # Create a new active order
+    order_time = datetime.now()
+    order_id = f"{user.id}_{order_time.timestamp()}"
+    
+    coverage_type = drug_type.value
+    
+    # Set up the order data based on drug type
+    if coverage_type == 'XAN':
+        order_data = {
+            'user_id': user.id,
+            'username': str(user),
+            'coverage_type': coverage_type,
+            'hours': duration,
+            'xanax_reward': reward,
+            'start_time': order_time.strftime('%Y-%m-%d %H:%M:%S')
+        }
+        details = f"{duration}H Xanax coverage ({reward} Xanax reward)"
+    else:  # EXTC
+        order_data = {
+            'user_id': user.id,
+            'username': str(user),
+            'coverage_type': coverage_type,
+            'jumps': duration,
+            'xanax_reward': reward,
+            'ecstasy_reward': 1,  # Default values
+            'edvds_reward': 3,    # Default values
+            'start_time': order_time.strftime('%Y-%m-%d %H:%M:%S')
+        }
+        details = f"{duration} Jump Ecstasy coverage ({reward} Xanax reward)"
+    
+    # Store the order
+    active_orders[order_id] = order_data
+    
+    # Create confirmation embed
+    embed = discord.Embed(
+        title="✅ Coverage Granted",
+        description=f"Coverage has been given to {user.mention}",
+        color=discord.Color.green()
+    )
+    embed.add_field(
+        name="📋 Coverage Details",
+        value=f"**Type:** {coverage_type}\n**Duration:** {duration} {'hours' if coverage_type == 'XAN' else 'jumps'}\n**Reward:** {reward} Xanax\n**Status:** Active",
+        inline=False
+    )
+    embed.set_footer(text=f"Granted by: {interaction.user.display_name} | Order ID: {order_id}")
+    
+    await interaction.response.send_message(embed=embed)
+    
+    # Log in order channel
+    order_channel = discord.utils.get(interaction.guild.channels, name="order")
+    if order_channel:
+        log_embed = discord.Embed(
+            title="✅ Admin Coverage Grant",
+            description=f"Coverage has been given to {user.mention} by {interaction.user.mention}",
+            color=discord.Color.green()
+        )
+        log_embed.add_field(
+            name="Coverage Details",
+            value=details,
+            inline=False
+        )
+        log_embed.set_footer(text=f"Order ID: {order_id}")
+        await order_channel.send(embed=log_embed)
 
 @bot.tree.command(name="del", description="Delete a specific pending order or overdose report (Admin only)")
 @app_commands.describe(

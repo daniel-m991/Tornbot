@@ -1,0 +1,122 @@
+TORN INSURANCE BOT COMMANDS
+========================
+
+USER COMMANDS
+------------
+/xan [hours]
+  Purchase Xanax overdose insurance coverage
+  - Specify duration in hours
+  - Bot will tell you how much Xanax to send and message code
+
+/extc [jumps]
+  Purchase Ecstasy overdose insurance coverage
+  - Specify number of jumps
+  - Bot will tell you how much Xanax to send and message code
+
+/check
+  Check your current insurance status
+  - Shows active coverage
+  - Shows pending orders
+  - Shows coverage expiration
+
+/od
+  Report an overdose to claim insurance payout
+  - Must have active coverage
+  - Admin will verify and process payout
+
+ADMIN COMMANDS
+-------------
+Insurance Management:
+/givecover [@user] [drug_type] [duration] [reward]
+  Give a user drug-specific coverage directly
+  - Can give Xanax or Ecstasy coverage
+  - Specify duration (hours for Xan, jumps for EXTC)
+  - Set reward amount
+
+/activate [@user]
+  Manually activate a verified insurance order
+  - Use when automatic verification fails
+
+/odfin [@user]
+  Finalize an overdose report and process payout
+  - Approves claim
+  - Records payout in database
+  - Coverage remains active after payout
+
+Pricing Management:
+/setxanprice [hours] [cost] [reward]
+  Set pricing for Xanax insurance
+  - Configure different durations
+  - Set cost and reward amounts
+
+/setextcprice [jumps] [cost] [edvds] [xanax] [ecstasy]
+  Set pricing for Ecstasy insurance
+  - Configure jump numbers
+  - Set various reward types
+
+/viewpricing
+  View current insurance pricing configuration
+  - Shows all Xanax pricing tiers
+  - Shows all Ecstasy pricing tiers
+
+Database Viewing:
+/viewcoverage [status] [@user] [limit]
+  View coverage records from database
+  - Filter by status (pending/active)
+  - Filter by user
+  - Set number of records to show
+
+/viewtransactions [type] [@user] [limit]
+  View transaction records from database
+  - Filter by type (received/payout)
+  - Filter by user
+  - Set number of records to show
+
+/costs [days]
+  View detailed cost analysis of insurance system
+  - Total Xanax received vs paid out
+  - System profit/loss
+  - Top insurance buyers
+  - Top claimants
+  - Average payment/payout amounts
+
+/stats [@user]
+  View basic transaction statistics
+  - Total Xanax received
+  - Total Xanax paid out
+  - Can view per-user stats
+
+System Management:
+/apikeyadd [key]
+  Set the Torn API key for the bot
+  - Required for automatic verification
+
+/order
+  Manually check pending orders against Torn API
+  - Verifies payments
+  - Activates confirmed orders
+
+/debugapi [@user]
+  Debug Torn API events for specific user
+  - Helps troubleshoot verification issues
+
+/testapi
+  Test Torn API connection
+  - Verifies API key works
+  - Checks API endpoint access
+
+Order Management:
+/active
+  View all currently active insurance orders
+  - Shows coverage details
+  - Shows expiration times
+
+/expired
+  View expired insurance orders
+  - Historical record of past coverage
+
+/del [@user] [type] [order_number]
+  Delete pending orders or overdose reports
+  - Can delete specific orders
+  - Can delete overdose reports
+  - Requires order number for confirmation

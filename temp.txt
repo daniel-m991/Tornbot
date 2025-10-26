@@ -1,0 +1,82 @@
+@bot.tree.command(name="givecover", description="Give a user drug-specific coverage (Admin only)")
+@app_commands.describe(
+    user="User to give coverage to",
+    drug_type="Type of drug coverage to give",
+    duration="Duration in hours for Xanax cover, or number of jumps for Ecstasy",
+    reward="Amount of reward for coverage"
+)
+@app_commands.choices(drug_type=[
+    app_commands.Choice(name="Xanax", value="XAN"),
+    app_commands.Choice(name="Ecstasy", value="EXTC")
+])
+async def give_coverage(interaction: discord.Interaction, user: discord.Member, drug_type: app_commands.Choice[str], duration: int, reward: int):
+    """Give a user drug-specific coverage (Admin only)"""
+    
+    # Check if user is admin
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message("❌ Only administrators can give coverage.", ephemeral=True)
+        return
+    
+    # Create a new active order
+    order_time = datetime.now()
+    order_id = f"{user.id}_{order_time.timestamp()}"
+    
+    coverage_type = drug_type.value
+    
+    # Set up the order data based on drug type
+    if coverage_type == 'XAN':
+        order_data = {
+            'user_id': user.id,
+            'username': str(user),
+            'coverage_type': coverage_type,
+            'hours': duration,
+            'xanax_reward': reward,
+            'start_time': order_time.strftime('%Y-%m-%d %H:%M:%S')
+        }
+        details = f"{duration}H Xanax coverage ({reward} Xanax reward)"
+    else:  # EXTC
+        order_data = {
+            'user_id': user.id,
+            'username': str(user),
+            'coverage_type': coverage_type,
+            'jumps': duration,
+            'xanax_reward': reward,
+            'ecstasy_reward': 1,  # Default values
+            'edvds_reward': 3,    # Default values
+            'start_time': order_time.strftime('%Y-%m-%d %H:%M:%S')
+        }
+        details = f"{duration} Jump Ecstasy coverage ({reward} Xanax reward)"
+    
+    # Store the order
+    active_orders[order_id] = order_data
+    
+    # Create confirmation embed
+    embed = discord.Embed(
+        title="✅ Coverage Granted",
+        description=f"Coverage has been given to {user.mention}",
+        color=discord.Color.green()
+    )
+    embed.add_field(
+        name="📋 Coverage Details",
+        value=f"**Type:** {coverage_type}\n**Duration:** {duration} {'hours' if coverage_type == 'XAN' else 'jumps'}\n**Reward:** {reward} Xanax\n**Status:** Active",
+        inline=False
+    )
+    embed.set_footer(text=f"Granted by: {interaction.user.display_name} | Order ID: {order_id}")
+    
+    await interaction.response.send_message(embed=embed)
+    
+    # Log in order channel
+    order_channel = discord.utils.get(interaction.guild.channels, name="order")
+    if order_channel:
+        log_embed = discord.Embed(
+            title="✅ Admin Coverage Grant",
+            description=f"Coverage has been given to {user.mention} by {interaction.user.mention}",
+            color=discord.Color.green()
+        )
+        log_embed.add_field(
+            name="Coverage Details",
+            value=details,
+            inline=False
+        )
+        log_embed.set_footer(text=f"Order ID: {order_id}")
+        await order_channel.send(embed=log_embed)
